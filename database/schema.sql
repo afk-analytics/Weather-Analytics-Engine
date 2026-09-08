@@ -3,28 +3,38 @@
 -- PostgreSQL Database Schema
 -- ============================================================
 
--- Create table for monthly weather observations
 CREATE TABLE IF NOT EXISTS weather_observations (
 
     observation_id BIGSERIAL PRIMARY KEY,
 
     observation_date DATE NOT NULL,
 
+    -- Weather station information
+    station_name VARCHAR(100) NOT NULL,
+    latitude NUMERIC(8,5),
+    longitude NUMERIC(8,5),
+    elevation_metres NUMERIC(7,2),
+
+    -- Observation period
     year INTEGER NOT NULL,
     month INTEGER NOT NULL,
 
+    -- Temperature
     tmax NUMERIC(5,2),
     tmin NUMERIC(5,2),
     mean_temperature NUMERIC(5,2),
     temperature_range NUMERIC(5,2),
 
+    -- Weather measurements
     air_frost_days INTEGER,
     rainfall_mm NUMERIC(7,2),
     sunshine_hours NUMERIC(7,2),
 
+    -- Analytical fields
     month_name VARCHAR(20),
     season VARCHAR(10),
 
+    -- Data quality / status
     status VARCHAR(50),
 
     tmax_estimated BOOLEAN NOT NULL DEFAULT FALSE,
@@ -32,9 +42,11 @@ CREATE TABLE IF NOT EXISTS weather_observations (
     rainfall_estimated BOOLEAN NOT NULL DEFAULT FALSE,
     sunshine_estimated BOOLEAN NOT NULL DEFAULT FALSE,
 
-    CONSTRAINT uq_weather_year_month
-        UNIQUE (year, month),
+    -- One observation per station, year and month
+    CONSTRAINT uq_weather_station_year_month
+        UNIQUE (station_name, year, month),
 
+    -- Data quality constraints
     CONSTRAINT chk_month
         CHECK (month BETWEEN 1 AND 12),
 

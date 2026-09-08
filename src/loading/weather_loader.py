@@ -1,12 +1,26 @@
+from pathlib import Path
+
 import pandas as pd
 from sqlalchemy import text
 
 from src.config.database import get_engine
+from src.ingestion.station_metadata import read_station_metadata
 from src.ingestion.weather_ingestion import read_station_file
 from src.transformation.weather_transformation import transform_weather_data
 
 
-def prepare_for_database(data: pd.DataFrame) -> pd.DataFrame:
+STATION_DIRECTORY = Path(
+    "data/raw/met_office"
+)
+
+
+def prepare_for_database(
+    data: pd.DataFrame,
+    station_name: str,
+    latitude: float,
+    longitude: float,
+    elevation_metres: float
+) -> pd.DataFrame:
     """
     Prepare transformed weather data for the PostgreSQL schema.
     """
@@ -24,8 +38,17 @@ def prepare_for_database(data: pd.DataFrame) -> pd.DataFrame:
         }
     )
 
+    df["station_name"] = station_name
+    df["latitude"] = latitude
+    df["longitude"] = longitude
+    df["elevation_metres"] = elevation_metres
+
     database_columns = [
         "observation_date",
+        "station_name",
+        "latitude",
+        "longitude",
+        "elevation_metres",
         "year",
         "month",
         "tmax",
@@ -46,19 +69,20 @@ def prepare_for_database(data: pd.DataFrame) -> pd.DataFrame:
 
     df = df[database_columns]
 
-    # Convert pandas missing values to Python None
-    # so PostgreSQL stores them as NULL
-    df = df.astype(object).where(pd.notna(df), None)
+    df = df.astype(object).where(
+        pd.notna(df),
+        None
+    )
 
     return df
 
 
-def load_weather_data(data: pd.DataFrame) -> None:
+def load_weather_data(
+    data: pd.DataFrame
+) -> None:
     """
-    Insert new weather observations and update existing ones.
-
-    The unique year/month constraint determines whether
-    PostgreSQL inserts a new row or updates an existing row.
+    Insert new weather observations and
+    update existing observations.
     """
 
     engine = get_engine()
@@ -67,6 +91,10 @@ def load_weather_data(data: pd.DataFrame) -> None:
         """
         INSERT INTO weather_observations (
             observation_date,
+            station_name,
+            latitude,
+            longitude,
+            elevation_metres,
             year,
             month,
             tmax,
@@ -86,6 +114,10 @@ def load_weather_data(data: pd.DataFrame) -> None:
         )
         VALUES (
             :observation_date,
+            :station_name,
+            :latitude,
+            :longitude,
+            :elevation_metres,
             :year,
             :month,
             :tmax,
@@ -104,30 +136,75 @@ def load_weather_data(data: pd.DataFrame) -> None:
             :sunshine_estimated
         )
 
-        ON CONFLICT (year, month)
+        ON CONFLICT (
+            station_name,
+            year,
+            month
+        )
 
         DO UPDATE SET
-            observation_date = EXCLUDED.observation_date,
-            tmax = EXCLUDED.tmax,
-            tmin = EXCLUDED.tmin,
-            mean_temperature = EXCLUDED.mean_temperature,
-            temperature_range = EXCLUDED.temperature_range,
-            air_frost_days = EXCLUDED.air_frost_days,
-            rainfall_mm = EXCLUDED.rainfall_mm,
-            sunshine_hours = EXCLUDED.sunshine_hours,
-            month_name = EXCLUDED.month_name,
-            season = EXCLUDED.season,
-            status = EXCLUDED.status,
-            tmax_estimated = EXCLUDED.tmax_estimated,
-            tmin_estimated = EXCLUDED.tmin_estimated,
-            rainfall_estimated = EXCLUDED.rainfall_estimated,
-            sunshine_estimated = EXCLUDED.sunshine_estimated;
+            observation_date =
+                EXCLUDED.observation_date,
+
+            latitude =
+                EXCLUDED.latitude,
+
+            longitude =
+                EXCLUDED.longitude,
+
+            elevation_metres =
+                EXCLUDED.elevation_metres,
+
+            tmax =
+                EXCLUDED.tmax,
+
+            tmin =
+                EXCLUDED.tmin,
+
+            mean_temperature =
+                EXCLUDED.mean_temperature,
+
+            temperature_range =
+                EXCLUDED.temperature_range,
+
+            air_frost_days =
+                EXCLUDED.air_frost_days,
+
+            rainfall_mm =
+                EXCLUDED.rainfall_mm,
+
+            sunshine_hours =
+                EXCLUDED.sunshine_hours,
+
+            month_name =
+                EXCLUDED.month_name,
+
+            season =
+                EXCLUDED.season,
+
+            status =
+                EXCLUDED.status,
+
+            tmax_estimated =
+                EXCLUDED.tmax_estimated,
+
+            tmin_estimated =
+                EXCLUDED.tmin_estimated,
+
+            rainfall_estimated =
+                EXCLUDED.rainfall_estimated,
+
+            sunshine_estimated =
+                EXCLUDED.sunshine_estimated;
         """
     )
 
-    records = data.to_dict(orient="records")
+    records = data.to_dict(
+        orient="records"
+    )
 
     with engine.begin() as connection:
+
         connection.execute(
             upsert_query,
             records
@@ -136,13 +213,14 @@ def load_weather_data(data: pd.DataFrame) -> None:
 
 def get_database_row_count() -> int:
     """
-    Return the number of records currently stored
-    in weather_observations.
+    Return total observations currently
+    stored in PostgreSQL.
     """
 
     engine = get_engine()
 
     with engine.connect() as connection:
+
         result = connection.execute(
             text(
                 """
@@ -157,19 +235,70 @@ def get_database_row_count() -> int:
 
 if __name__ == "__main__":
 
-    file_path = "data/raw/CardiffButePark.txt"
+    station_files = sorted(
+        STATION_DIRECTORY.glob("*.txt")
+    )
 
-    raw_df = read_station_file(file_path)
+    print(
+        f"Station files discovered: "
+        f"{len(station_files)}"
+    )
 
-    transformed_df = transform_weather_data(raw_df)
+    for station_file in station_files:
 
-    database_df = prepare_for_database(transformed_df)
+        metadata = read_station_metadata(
+            station_file
+        )
 
-    print(f"Records ready to load: {len(database_df)}")
+        print(
+            f"Processing: "
+            f"{metadata['station_name']}"
+        )
 
-    load_weather_data(database_df)
+        raw_df = read_station_file(
+            station_file
+        )
 
-    row_count = get_database_row_count()
+        transformed_df = (
+            transform_weather_data(
+                raw_df
+            )
+        )
 
-    print(f"Database row count: {row_count}")
-    print("Weather data loaded successfully.")
+        database_df = (
+            prepare_for_database(
+                transformed_df,
+                metadata["station_name"],
+                metadata["latitude"],
+                metadata["longitude"],
+                metadata["elevation_metres"]
+            )
+        )
+
+        print(
+            f"Records ready to load: "
+            f"{len(database_df)}"
+        )
+
+        load_weather_data(
+            database_df
+        )
+
+        print(
+            f"{metadata['station_name']} "
+            f"loaded successfully."
+        )
+
+    row_count = (
+        get_database_row_count()
+    )
+
+    print(
+        f"Database row count: "
+        f"{row_count}"
+    )
+
+    print(
+        "All historic weather stations "
+        "loaded successfully."
+    )
