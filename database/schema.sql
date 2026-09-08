@@ -39,8 +39,10 @@ CREATE TABLE IF NOT EXISTS weather_observations (
 
     tmax_estimated BOOLEAN NOT NULL DEFAULT FALSE,
     tmin_estimated BOOLEAN NOT NULL DEFAULT FALSE,
+    air_frost_estimated BOOLEAN NOT NULL DEFAULT FALSE,
     rainfall_estimated BOOLEAN NOT NULL DEFAULT FALSE,
     sunshine_estimated BOOLEAN NOT NULL DEFAULT FALSE,
+    sunshine_automatic_sensor BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- One observation per station, year and month
     CONSTRAINT uq_weather_station_year_month

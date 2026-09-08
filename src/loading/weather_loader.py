@@ -33,8 +33,10 @@ def prepare_for_database(
             "af": "air_frost_days",
             "rain": "rainfall_mm",
             "sun": "sunshine_hours",
+            "af_estimated": "air_frost_estimated",
             "rain_estimated": "rainfall_estimated",
-            "sun_estimated": "sunshine_estimated"
+            "sun_estimated": "sunshine_estimated",
+            "sun_automatic_sensor": "sunshine_automatic_sensor"
         }
     )
 
@@ -63,8 +65,10 @@ def prepare_for_database(
         "status",
         "tmax_estimated",
         "tmin_estimated",
+        "air_frost_estimated",
         "rainfall_estimated",
-        "sunshine_estimated"
+        "sunshine_estimated",
+        "sunshine_automatic_sensor"
     ]
 
     df = df[database_columns]
@@ -109,8 +113,10 @@ def load_weather_data(
             status,
             tmax_estimated,
             tmin_estimated,
+            air_frost_estimated,
             rainfall_estimated,
-            sunshine_estimated
+            sunshine_estimated,
+            sunshine_automatic_sensor
         )
         VALUES (
             :observation_date,
@@ -132,8 +138,10 @@ def load_weather_data(
             :status,
             :tmax_estimated,
             :tmin_estimated,
+            :air_frost_estimated,
             :rainfall_estimated,
-            :sunshine_estimated
+            :sunshine_estimated,
+            :sunshine_automatic_sensor
         )
 
         ON CONFLICT (
@@ -191,11 +199,17 @@ def load_weather_data(
             tmin_estimated =
                 EXCLUDED.tmin_estimated,
 
+            air_frost_estimated =
+                EXCLUDED.air_frost_estimated,
+
             rainfall_estimated =
                 EXCLUDED.rainfall_estimated,
 
             sunshine_estimated =
-                EXCLUDED.sunshine_estimated;
+                EXCLUDED.sunshine_estimated,
+
+            sunshine_automatic_sensor =
+                EXCLUDED.sunshine_automatic_sensor;
         """
     )
 

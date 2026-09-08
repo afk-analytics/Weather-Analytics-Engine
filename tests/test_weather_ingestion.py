@@ -1,17 +1,24 @@
+from pathlib import Path
+
+import pandas as pd
+
 from src.ingestion.weather_ingestion import read_station_file
 
 
-FILE_PATH = "data/raw/CardiffButePark.txt"
+TEST_FILE = Path(
+    "data/raw/met_office/cardiffdata.txt"
+)
 
 
-def test_file_loads():
-    df = read_station_file(FILE_PATH)
+def test_station_file_loads():
+    data = read_station_file(TEST_FILE)
 
-    assert not df.empty
+    assert isinstance(data, pd.DataFrame)
+    assert len(data) > 0
 
 
 def test_expected_columns_exist():
-    df = read_station_file(FILE_PATH)
+    data = read_station_file(TEST_FILE)
 
     expected_columns = {
         "year",
@@ -24,69 +31,114 @@ def test_expected_columns_exist():
         "status",
         "tmax_estimated",
         "tmin_estimated",
+        "af_estimated",
         "rain_estimated",
-        "sun_estimated"
+        "sun_estimated",
+        "sun_automatic_sensor"
     }
 
-    assert expected_columns.issubset(df.columns)
+    assert expected_columns.issubset(
+        set(data.columns)
+    )
 
 
 def test_month_values_are_valid():
-    df = read_station_file(FILE_PATH)
+    data = read_station_file(TEST_FILE)
 
-    assert df["month"].between(1, 12).all()
+    valid_months = (
+        data["month"]
+        .dropna()
+        .between(1, 12)
+        .all()
+    )
+
+    assert valid_months
 
 
 def test_year_values_are_valid():
-    df = read_station_file(FILE_PATH)
+    data = read_station_file(TEST_FILE)
 
-    assert (df["year"] >= 1900).all()
+    valid_years = (
+        data["year"]
+        .dropna()
+        .ge(1900)
+        .all()
+    )
 
-
-def test_rainfall_is_not_negative():
-    df = read_station_file(FILE_PATH)
-
-    assert (df["rain"].dropna() >= 0).all()
-
-
-def test_air_frost_is_not_negative():
-    df = read_station_file(FILE_PATH)
-
-    assert (df["af"].dropna() >= 0).all()
+    assert valid_years
 
 
-def test_max_temperature_is_not_lower_than_min_temperature():
-    df = read_station_file(FILE_PATH)
+def test_rainfall_is_non_negative():
+    data = read_station_file(TEST_FILE)
 
-    valid_rows = df[
-        df["tmax"].notna() &
-        df["tmin"].notna()
+    valid_rainfall = (
+        data["rain"]
+        .dropna()
+        .ge(0)
+        .all()
+    )
+
+    assert valid_rainfall
+
+
+def test_air_frost_is_non_negative():
+    data = read_station_file(TEST_FILE)
+
+    valid_frost = (
+        data["af"]
+        .dropna()
+        .ge(0)
+        .all()
+    )
+
+    assert valid_frost
+
+
+def test_tmax_is_not_lower_than_tmin():
+    data = read_station_file(TEST_FILE)
+
+    valid_rows = data[
+        data["tmax"].notna()
+        & data["tmin"].notna()
     ]
 
     assert (
-        valid_rows["tmax"] >= valid_rows["tmin"]
+        valid_rows["tmax"]
+        >= valid_rows["tmin"]
     ).all()
 
 
-def test_year_month_combination_is_unique():
-    df = read_station_file(FILE_PATH)
+def test_year_month_is_unique():
+    data = read_station_file(TEST_FILE)
 
-    duplicates = df.duplicated(
-        subset=["year", "month"]
+    duplicate_count = (
+        data
+        .duplicated(
+            subset=[
+                "year",
+                "month"
+            ]
+        )
+        .sum()
     )
 
-    assert not duplicates.any()
+    assert duplicate_count == 0
 
 
-def test_estimated_flags_are_boolean():
-    df = read_station_file(FILE_PATH)
+def test_quality_flags_are_boolean():
+    data = read_station_file(TEST_FILE)
 
-    estimated_columns = [
+    quality_columns = [
         "tmax_estimated",
         "tmin_estimated",
+        "af_estimated",
         "rain_estimated",
-        "sun_estimated"
+        "sun_estimated",
+        "sun_automatic_sensor"
     ]
 
-    for column in estimated_columns:
-        assert df[column].isin([True, False]).all()
+    for column in quality_columns:
+
+        assert pd.api.types.is_bool_dtype(
+            data[column]
+        )
