@@ -1,198 +1,267 @@
 -- ============================================================
 -- Weather Analytics Engine
--- Analytical SQL Queries
+-- Station-aware analytical queries
 -- ============================================================
 
--- 1. Annual weather summary
--- Provides yearly averages/totals for temperature, rainfall,
--- frost and sunshine.
+
+-- ============================================================
+-- 1. Annual weather summary by station
+-- ============================================================
 
 SELECT
-    station_name,
-    year,
-    ROUND(AVG(mean_temperature), 2) AS avg_temperature_c,
-    ROUND(AVG(tmax), 2) AS avg_max_temperature_c,
-    ROUND(AVG(tmin), 2) AS avg_min_temperature_c,
-    ROUND(SUM(rainfall_mm), 2) AS total_rainfall_mm,
-    SUM(air_frost_days) AS total_air_frost_days,
-    ROUND(SUM(sunshine_hours), 2) AS total_sunshine_hours
-FROM weather_observations
+    ws.display_station_name AS station_name,
+    wo.year,
+    ROUND(
+        AVG(wo.mean_temperature),
+        2
+    ) AS average_temperature,
+    ROUND(
+        SUM(wo.rainfall_mm),
+        2
+    ) AS total_rainfall_mm,
+    SUM(
+        wo.air_frost_days
+    ) AS total_frost_days,
+    ROUND(
+        SUM(wo.sunshine_hours),
+        2
+    ) AS total_sunshine_hours
+FROM weather_observations AS wo
+JOIN weather_stations AS ws
+    ON wo.station_id = ws.station_id
 GROUP BY
-    station_name,
-    year
+    ws.display_station_name,
+    wo.year
 ORDER BY
-    station_name,
-    year;
+    ws.display_station_name,
+    wo.year;
 
--- 2. Annual temperature trend
--- Shows how average annual temperature changes over time.
+
+-- ============================================================
+-- 2. Annual temperature trend by station
+-- ============================================================
 
 SELECT
-    station_name,
-    year,
+    ws.display_station_name AS station_name,
+    wo.year,
     ROUND(
-        AVG(mean_temperature),
+        AVG(wo.mean_temperature),
         2
-    ) AS avg_temperature_c
-FROM weather_observations
+    ) AS average_temperature
+FROM weather_observations AS wo
+JOIN weather_stations AS ws
+    ON wo.station_id = ws.station_id
+WHERE wo.mean_temperature IS NOT NULL
 GROUP BY
-    station_name,
-    year
+    ws.display_station_name,
+    wo.year
 ORDER BY
-    station_name,
-    year;
+    ws.display_station_name,
+    wo.year;
 
--- 3. Monthly weather averages
--- Shows typical weather conditions for each month of the year.
+
+-- ============================================================
+-- 3. Monthly weather averages by station
+-- ============================================================
 
 SELECT
-    station_name,
-    month,
-    month_name,
+    ws.display_station_name AS station_name,
+    wo.month,
+    wo.month_name,
     ROUND(
-        AVG(mean_temperature),
+        AVG(wo.mean_temperature),
         2
-    ) AS avg_temperature_c,
+    ) AS average_temperature,
     ROUND(
-        AVG(rainfall_mm),
+        AVG(wo.rainfall_mm),
         2
-    ) AS avg_rainfall_mm,
+    ) AS average_rainfall_mm,
     ROUND(
-        AVG(air_frost_days),
+        AVG(wo.sunshine_hours),
         2
-    ) AS avg_air_frost_days,
+    ) AS average_sunshine_hours,
     ROUND(
-        AVG(sunshine_hours),
+        AVG(wo.air_frost_days),
         2
-    ) AS avg_sunshine_hours
-FROM weather_observations
+    ) AS average_frost_days
+FROM weather_observations AS wo
+JOIN weather_stations AS ws
+    ON wo.station_id = ws.station_id
 GROUP BY
-    station_name,
-    month,
-    month_name
+    ws.display_station_name,
+    wo.month,
+    wo.month_name
 ORDER BY
-    station_name,
-    month;
+    ws.display_station_name,
+    wo.month;
 
+
+-- ============================================================
 -- 4. Year-on-year temperature change
--- Compares each year's average temperature with the previous year.
+-- ============================================================
 
 WITH annual_temperature AS (
+
     SELECT
-        station_name,
-        year,
-        AVG(mean_temperature) AS avg_temperature_c
-    FROM weather_observations
+        wo.station_id,
+        ws.display_station_name AS station_name,
+        wo.year,
+        AVG(
+            wo.mean_temperature
+        ) AS average_temperature
+    FROM weather_observations AS wo
+    JOIN weather_stations AS ws
+        ON wo.station_id = ws.station_id
+    WHERE wo.mean_temperature IS NOT NULL
     GROUP BY
-        station_name,
-        year
+        wo.station_id,
+        ws.display_station_name,
+        wo.year
+
 ),
 
 temperature_change AS (
+
     SELECT
+        station_id,
         station_name,
         year,
-        avg_temperature_c,
-        LAG(avg_temperature_c) OVER (
-            PARTITION BY station_name
+        average_temperature,
+        LAG(
+            average_temperature
+        ) OVER (
+            PARTITION BY station_id
             ORDER BY year
         ) AS previous_year_temperature
     FROM annual_temperature
+
 )
 
 SELECT
     station_name,
     year,
     ROUND(
-        avg_temperature_c,
+        average_temperature,
         2
-    ) AS avg_temperature_c,
+    ) AS average_temperature,
     ROUND(
         previous_year_temperature,
         2
-    ) AS previous_year_temperature_c,
+    ) AS previous_year_temperature,
     ROUND(
-        avg_temperature_c
+        average_temperature
         - previous_year_temperature,
         2
-    ) AS year_on_year_change_c
+    ) AS year_on_year_change
 FROM temperature_change
 ORDER BY
     station_name,
     year;
 
--- 5. Hottest and coldest years
--- Ranks years by average annual temperature.
+
+-- ============================================================
+-- 5. Hottest and coldest years by station
+-- ============================================================
 
 WITH annual_temperature AS (
+
     SELECT
-        station_name,
-        year,
-        AVG(mean_temperature) AS avg_temperature_c
-    FROM weather_observations
+        wo.station_id,
+        ws.display_station_name AS station_name,
+        wo.year,
+        AVG(
+            wo.mean_temperature
+        ) AS average_temperature
+    FROM weather_observations AS wo
+    JOIN weather_stations AS ws
+        ON wo.station_id = ws.station_id
+    WHERE wo.mean_temperature IS NOT NULL
     GROUP BY
-        station_name,
-        year
+        wo.station_id,
+        ws.display_station_name,
+        wo.year
+
 ),
 
 ranked_years AS (
+
     SELECT
+        station_id,
         station_name,
         year,
-        avg_temperature_c,
+        average_temperature,
 
         RANK() OVER (
-            PARTITION BY station_name
-            ORDER BY avg_temperature_c DESC
-        ) AS hottest_rank,
+            PARTITION BY station_id
+            ORDER BY average_temperature DESC
+        ) AS hottest_year_rank,
 
         RANK() OVER (
-            PARTITION BY station_name
-            ORDER BY avg_temperature_c ASC
-        ) AS coldest_rank
+            PARTITION BY station_id
+            ORDER BY average_temperature ASC
+        ) AS coldest_year_rank
 
     FROM annual_temperature
+
 )
 
 SELECT
     station_name,
     year,
     ROUND(
-        avg_temperature_c,
+        average_temperature,
         2
-    ) AS avg_temperature_c,
-    hottest_rank,
-    coldest_rank
+    ) AS average_temperature,
+    hottest_year_rank,
+    coldest_year_rank
 FROM ranked_years
+WHERE
+    hottest_year_rank <= 5
+    OR coldest_year_rank <= 5
 ORDER BY
     station_name,
-    hottest_rank,
-    year;
+    average_temperature DESC;
 
--- 6. Wettest years
--- Ranks years by total annual rainfall.
+
+-- ============================================================
+-- 6. Wettest years by station
+-- ============================================================
 
 WITH annual_rainfall AS (
+
     SELECT
-        station_name,
-        year,
-        SUM(rainfall_mm) AS total_rainfall_mm
-    FROM weather_observations
+        wo.station_id,
+        ws.display_station_name AS station_name,
+        wo.year,
+        SUM(
+            wo.rainfall_mm
+        ) AS total_rainfall_mm
+    FROM weather_observations AS wo
+    JOIN weather_stations AS ws
+        ON wo.station_id = ws.station_id
+    WHERE wo.rainfall_mm IS NOT NULL
     GROUP BY
-        station_name,
-        year
+        wo.station_id,
+        ws.display_station_name,
+        wo.year
+
 ),
 
 ranked_rainfall AS (
+
     SELECT
+        station_id,
         station_name,
         year,
         total_rainfall_mm,
+
         RANK() OVER (
-            PARTITION BY station_name
+            PARTITION BY station_id
             ORDER BY total_rainfall_mm DESC
-        ) AS rainfall_rank
+        ) AS wettest_year_rank
+
     FROM annual_rainfall
+
 )
 
 SELECT
@@ -202,37 +271,35 @@ SELECT
         total_rainfall_mm,
         2
     ) AS total_rainfall_mm,
-    rainfall_rank
+    wettest_year_rank
 FROM ranked_rainfall
+WHERE wettest_year_rank <= 5
 ORDER BY
     station_name,
-    rainfall_rank,
-    year;
+    wettest_year_rank;
 
--- 7. Warmest individual months on record
--- Identifies the hottest monthly observations in the dataset.
+
+-- ============================================================
+-- 7. Warmest individual months by station
+-- ============================================================
 
 SELECT
-    station_name,
-    observation_date,
-    year,
-    month,
-    month_name,
-    ROUND(
-        mean_temperature,
-        2
-    ) AS mean_temperature_c,
-    ROUND(
-        tmax,
-        2
-    ) AS tmax_c,
-    ROUND(
-        tmin,
-        2
-    ) AS tmin_c
-FROM weather_observations
-WHERE mean_temperature IS NOT NULL
+    ws.display_station_name AS station_name,
+    wo.observation_date,
+    wo.year,
+    wo.month,
+    wo.month_name,
+    wo.season,
+    wo.tmax,
+    wo.tmin,
+    wo.mean_temperature,
+    wo.rainfall_mm,
+    wo.sunshine_hours
+FROM weather_observations AS wo
+JOIN weather_stations AS ws
+    ON wo.station_id = ws.station_id
+WHERE wo.mean_temperature IS NOT NULL
 ORDER BY
-    station_name,
-    mean_temperature DESC,
-    observation_date;
+    ws.display_station_name,
+    wo.mean_temperature DESC,
+    wo.observation_date;

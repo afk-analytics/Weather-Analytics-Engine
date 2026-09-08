@@ -14,15 +14,79 @@ STATION_DIRECTORY = Path(
 )
 
 
-def prepare_for_database(
-    data: pd.DataFrame,
+def upsert_station(
     station_name: str,
     latitude: float,
     longitude: float,
     elevation_metres: float
+) -> int:
+    """
+    Insert or update a weather station and return its station_id.
+    """
+
+    engine = get_engine()
+
+    station_query = text(
+        """
+        INSERT INTO weather_stations (
+            source_station_name,
+            display_station_name,
+            latitude,
+            longitude,
+            elevation_metres
+        )
+        VALUES (
+            :source_station_name,
+            :display_station_name,
+            :latitude,
+            :longitude,
+            :elevation_metres
+        )
+
+        ON CONFLICT (
+            source_station_name
+        )
+
+        DO UPDATE SET
+            latitude =
+                EXCLUDED.latitude,
+
+            longitude =
+                EXCLUDED.longitude,
+
+            elevation_metres =
+                EXCLUDED.elevation_metres
+
+        RETURNING station_id;
+        """
+    )
+
+    station_record = {
+        "source_station_name": station_name,
+        "display_station_name": station_name,
+        "latitude": latitude,
+        "longitude": longitude,
+        "elevation_metres": elevation_metres
+    }
+
+    with engine.begin() as connection:
+
+        result = connection.execute(
+            station_query,
+            station_record
+        )
+
+        station_id = result.scalar_one()
+
+    return station_id
+
+
+def prepare_for_database(
+    data: pd.DataFrame,
+    station_id: int
 ) -> pd.DataFrame:
     """
-    Prepare transformed weather data for the PostgreSQL schema.
+    Prepare transformed weather data for the PostgreSQL fact table.
     """
 
     df = data.copy()
@@ -40,17 +104,11 @@ def prepare_for_database(
         }
     )
 
-    df["station_name"] = station_name
-    df["latitude"] = latitude
-    df["longitude"] = longitude
-    df["elevation_metres"] = elevation_metres
+    df["station_id"] = station_id
 
     database_columns = [
         "observation_date",
-        "station_name",
-        "latitude",
-        "longitude",
-        "elevation_metres",
+        "station_id",
         "year",
         "month",
         "tmax",
@@ -85,8 +143,7 @@ def load_weather_data(
     data: pd.DataFrame
 ) -> None:
     """
-    Insert new weather observations and
-    update existing observations.
+    Insert new weather observations and update existing observations.
     """
 
     engine = get_engine()
@@ -95,10 +152,7 @@ def load_weather_data(
         """
         INSERT INTO weather_observations (
             observation_date,
-            station_name,
-            latitude,
-            longitude,
-            elevation_metres,
+            station_id,
             year,
             month,
             tmax,
@@ -120,10 +174,7 @@ def load_weather_data(
         )
         VALUES (
             :observation_date,
-            :station_name,
-            :latitude,
-            :longitude,
-            :elevation_metres,
+            :station_id,
             :year,
             :month,
             :tmax,
@@ -145,7 +196,7 @@ def load_weather_data(
         )
 
         ON CONFLICT (
-            station_name,
+            station_id,
             year,
             month
         )
@@ -153,15 +204,6 @@ def load_weather_data(
         DO UPDATE SET
             observation_date =
                 EXCLUDED.observation_date,
-
-            latitude =
-                EXCLUDED.latitude,
-
-            longitude =
-                EXCLUDED.longitude,
-
-            elevation_metres =
-                EXCLUDED.elevation_metres,
 
             tmax =
                 EXCLUDED.tmax,
@@ -227,8 +269,7 @@ def load_weather_data(
 
 def get_database_row_count() -> int:
     """
-    Return total observations currently
-    stored in PostgreSQL.
+    Return the total number of weather observations in PostgreSQL.
     """
 
     engine = get_engine()
@@ -269,6 +310,13 @@ if __name__ == "__main__":
             f"{metadata['station_name']}"
         )
 
+        station_id = upsert_station(
+            metadata["station_name"],
+            metadata["latitude"],
+            metadata["longitude"],
+            metadata["elevation_metres"]
+        )
+
         raw_df = read_station_file(
             station_file
         )
@@ -282,10 +330,7 @@ if __name__ == "__main__":
         database_df = (
             prepare_for_database(
                 transformed_df,
-                metadata["station_name"],
-                metadata["latitude"],
-                metadata["longitude"],
-                metadata["elevation_metres"]
+                station_id
             )
         )
 
